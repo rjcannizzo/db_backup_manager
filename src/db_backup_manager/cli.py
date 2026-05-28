@@ -207,3 +207,49 @@ def vacuum(appname: str = typer.Argument(..., help="Name of the registered app t
     except Exception as e:
         console.print(f"\n[red]✗ Vacuum failed: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command(name="list")
+def list_apps():
+    """List all registered apps with backup status."""
+    from rich.table import Table
+
+    config = load_config()
+    validate_settings(config)
+
+    apps = {k: v for k, v in config.items() if k != "settings"}
+
+    if not apps:
+        console.print("\n[yellow]No apps registered yet. Run: db-backup-manager register <appname>[/yellow]")
+        raise typer.Exit()
+
+    backup_root = config["settings"]["backup_root"]
+
+    table = Table(show_header=True, header_style="bold blue")
+    table.add_column("App", style="cyan")
+    table.add_column("Database path")
+    table.add_column("Backups", justify="right")
+    table.add_column("Max", justify="right")
+    table.add_column("Latest backup", justify="left")
+    table.add_column("Vacuum", justify="left")
+
+    for appname, app_config in apps.items():
+        backup_dir = Path(backup_root) / appname
+        backups = sorted(backup_dir.glob("backup_*.db")) if backup_dir.exists() else []
+        backup_count = str(len(backups))
+        max_backups = str(app_config["max_backups"])
+
+        if backups:
+            # Parse timestamp from filename: backup_YYYYMMDD_HHMMSS.db
+            latest = backups[-1].stem.replace("backup_", "")
+            latest_str = f"{latest[:4]}-{latest[4:6]}-{latest[6:8]} {latest[9:11]}:{latest[11:13]}:{latest[13:15]}"
+        else:
+            latest_str = "[dim]none[/dim]"
+
+        vacuum = app_config.get("vacuum_schedule", "[dim]none[/dim]")
+
+        table.add_row(appname, app_config["db_path"], backup_count, max_backups, latest_str, vacuum)
+
+    console.print()
+    console.print(table)
+    console.print()
