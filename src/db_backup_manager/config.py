@@ -61,6 +61,5 @@ def write_app_config(appname: str, data: dict) -> None:
     )
     if "vacuum_schedule" in data:
         entry += f"vacuum_schedule = \"{data['vacuum_schedule']}\"\n"
-        
     with open(config_path, "a") as f:
         f.write(entry)

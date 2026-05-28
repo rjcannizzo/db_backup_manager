@@ -138,6 +138,8 @@ def show(appname: Optional[str] = typer.Argument(None, help="App name (omit for 
             raise typer.Exit(1)
         apps = {appname: config[appname]}
 
+    backup_root = config["settings"]["backup_root"]
+
     console.print("\n[bold]Crontab entries[/bold] [dim](crontab -e):[/dim]")
     console.print(Rule(style="blue"))
     for name, data in apps.items():

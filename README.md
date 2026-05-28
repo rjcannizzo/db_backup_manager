@@ -66,7 +66,8 @@ Each registered app gets its own subdirectory: `backup_root/<appname>/`.
 ```
 ~/db_backups/
 ├── logs/
-│   └── db_backup_manager.log    # rotating error log for all apps
+│   ├── db_backup_manager.log    # rotating error log for all apps
+│   └── cron.log                 # cron job output (stdout + stderr)
 ├── myapp/
 │   ├── backup_20260101_000000.db
 │   ├── backup_20260101_060000.db
@@ -93,6 +94,7 @@ Prompts for:
 - Backups per day and retention days (used to calculate `max_backups`)
 
 At the end of registration, crontab entries are printed for easy copy/paste.
+The entries include the full command path and log redirection automatically.
 
 Example session:
 ```
@@ -123,22 +125,31 @@ How many days to retain backups [30]:
   Backup directory: /home/user/db_backups/myapp
 
 Add these entries to your crontab (crontab -e):
-──────────────────────────────────────────────────────
+──────────────────────────────────────────────────────────────────────────────────────────
 # myapp
-0 */6 * * * db-backup-manager backup myapp
-0 0 1 * * db-backup-manager vacuum myapp
-──────────────────────────────────────────────────────
+0 */6 * * * /home/user/.local/bin/db-backup-manager backup myapp >> /home/user/db_backups/logs/cron.log 2>&1
+0 0 1 * * /home/user/.local/bin/db-backup-manager vacuum myapp >> /home/user/db_backups/logs/cron.log 2>&1
+──────────────────────────────────────────────────────────────────────────────────────────
 ```
 
 ### Set up cron
 
-Run `crontab -e` and paste the lines printed by `register`. Only paste the raw cron
-lines — do not include the separator lines or comments from the output panel.
+Run `crontab -e` and paste the cron lines printed by `register`. Only paste the raw
+cron lines — do not include the separator lines.
+
+The entries already include:
+- The full path to the `db-backup-manager` command (required for cron)
+- Log redirection to `<backup_root>/logs/cron.log` for easy debugging
 
 To review entries at any time:
 ```bash
 db-backup-manager show           # all apps
 db-backup-manager show <appname> # one app
+```
+
+To check cron output after a scheduled run:
+```bash
+cat <backup_root>/logs/cron.log
 ```
 
 ### Run a backup manually
@@ -190,10 +201,15 @@ Per-app backup directory is derived automatically as `backup_root/<appname>`.
 
 ## Logging
 
-Errors are logged to `<backup_root>/logs/db_backup_manager.log`.
-The log file rotates at 1MB with 3 backups kept. Routine operations
-(successful backups, pruning) are not logged — check `db-backup-manager list`
-for current status.
+Two log files are maintained under `<backup_root>/logs/`:
+
+- **`db_backup_manager.log`** — error log for backup, vacuum, and pruning failures.
+  Rotates at 1MB with 3 backups kept.
+- **`cron.log`** — full output from cron-triggered runs (stdout + stderr).
+  Check this first when diagnosing cron issues.
+
+Routine successful operations are not logged — use `db-backup-manager list`
+for current backup status.
 
 ---
 
