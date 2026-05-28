@@ -5,8 +5,8 @@ def get_cron_entries(appname: str, config: dict) -> dict:
     derived from the app's config.
     """
     return {
-        "backup": f"{config['backup_frequency']}  db-backup-manager backup {appname}",
-        "vacuum": f"{config['vacuum_schedule']}  db-backup-manager vacuum {appname}",
+        "backup": f"{config['backup_frequency']} db-backup-manager backup {appname}",
+        "vacuum": f"{config['vacuum_schedule']} db-backup-manager vacuum {appname}",
     }
 
 

@@ -1,7 +1,8 @@
 import typer
 from rich.console import Console
-from rich.panel import Panel
+from rich.rule import Rule
 from pathlib import Path
+from typing import Optional
 
 from db_backup_manager.config import (
     load_config,
@@ -16,12 +17,12 @@ console = Console()
 
 # Cron expression presets
 BACKUP_FREQUENCY_PRESETS = {
-    "1": ("Once daily at midnight",       "0 0 * * *"),
-    "2": ("Twice daily (midnight, noon)",  "0 0,12 * * *"),
-    "4": ("Every 6 hours",                "0 */6 * * *"),
-    "6": ("Every 4 hours",                "0 */4 * * *"),
-    "8": ("Every 3 hours",                "0 */3 * * *"),
-    "24": ("Every hour",                  "0 * * * *"),
+    "1": ("Once daily at midnight",      "0 0 * * *"),
+    "2": ("Twice daily (midnight, noon)", "0 0,12 * * *"),
+    "4": ("Every 6 hours",               "0 */6 * * *"),
+    "6": ("Every 4 hours",               "0 */4 * * *"),
+    "8": ("Every 3 hours",               "0 */3 * * *"),
+    "24": ("Every hour",                 "0 * * * *"),
 }
 
 VACUUM_SCHEDULE_PRESETS = {
@@ -55,6 +56,18 @@ def prompt_vacuum_schedule() -> str | None:
     return VACUUM_SCHEDULE_PRESETS[choice][1]
 
 
+def print_cron_entries(appname: str, data: dict) -> None:
+    """Print crontab entries as plain styled text for easy copying."""
+    entries = get_cron_entries(appname, data)
+    console.print("\n[bold]Add these entries to your crontab[/bold] [dim](crontab -e):[/dim]")
+    console.print(Rule(style="blue"))
+    console.print(f"[cyan]# {appname}[/cyan]")
+    console.print(entries["backup"])
+    if "vacuum_schedule" in data:
+        console.print(entries["vacuum"])
+    console.print(Rule(style="blue"))
+
+
 @app.command()
 def register(appname: str = typer.Argument(..., help="Name of the app to register")):
     """Register a new app for backup management."""
@@ -77,12 +90,8 @@ def register(appname: str = typer.Argument(..., help="Name of the app to registe
     backup_frequency = prompt_backup_frequency()
     vacuum_schedule = prompt_vacuum_schedule()
 
-    backups_per_day = typer.prompt(
-        "\nHow many backups per day", default=4
-    )
-    retention_days = typer.prompt(
-        "How many days to retain backups", default=30
-    )
+    backups_per_day = typer.prompt("\nHow many backups per day", default=4)
+    retention_days = typer.prompt("How many days to retain backups", default=30)
     max_backups = int(backups_per_day) * int(retention_days)
     console.print(f"[dim]  → max_backups set to {max_backups} "
                   f"({backups_per_day}/day × {retention_days} days)[/dim]")
@@ -106,27 +115,95 @@ def register(appname: str = typer.Argument(..., help="Name of the app to registe
     console.print(f"\n[green]✓ '{appname}' registered successfully.[/green]")
     console.print(f"  Backup directory: {backup_dir}")
 
-    # Print crontab entries
-    if vacuum_schedule:
-        entries = get_cron_entries(appname, data)
-        formatted = format_cron_entries(appname, entries)
-        console.print(
-            Panel(
-                f"[bold]Add these entries to your crontab:[/bold]\n"
-                f"[dim](run: crontab -e)[/dim]\n"
-                f"{formatted}",
-                title="Crontab",
-                border_style="blue",
-            )
-        )
-    else:
-        entries = {"backup": get_cron_entries(appname, data)["backup"]}
-        console.print(
-            Panel(
-                f"[bold]Add this entry to your crontab:[/bold]\n"
-                f"[dim](run: crontab -e)[/dim]\n\n"
-                f"# {appname}\n{entries['backup']}\n",
-                title="Crontab",
-                border_style="blue",
-            )
-        )
+    print_cron_entries(appname, data)
+
+
+@app.command()
+def show(appname: Optional[str] = typer.Argument(None, help="App name (omit for all apps)")):
+    """Show crontab entries for one app or all apps."""
+
+    config = load_config()
+    validate_settings(config)
+
+    # Get list of registered apps (exclude [settings])
+    apps = {k: v for k, v in config.items() if k != "settings"}
+
+    if not apps:
+        console.print("\n[yellow]No apps registered yet. Run: db-backup-manager register <appname>[/yellow]")
+        raise typer.Exit()
+
+    if appname:
+        if appname not in config:
+            console.print(f"\n[red]✗ '{appname}' is not registered.[/red]")
+            raise typer.Exit(1)
+        apps = {appname: config[appname]}
+
+    console.print("\n[bold]Crontab entries[/bold] [dim](crontab -e):[/dim]")
+    console.print(Rule(style="blue"))
+    for name, data in apps.items():
+        entries = get_cron_entries(name, data)
+        console.print(f"[cyan]# {name}[/cyan]")
+        console.print(entries["backup"])
+        if "vacuum_schedule" in data:
+            console.print(entries["vacuum"])
+        console.print()
+    console.print(Rule(style="blue"))
+
+
+@app.command()
+def backup(appname: str = typer.Argument(..., help="Name of the registered app to back up")):
+    """Run a backup for a registered app and prune old backups."""
+    from db_backup_manager.backup import backup_database
+    from db_backup_manager.pruner import prune_backups
+
+    config = load_config()
+    validate_settings(config)
+
+    if appname not in config:
+        console.print(f"\n[red]✗ '{appname}' is not registered.[/red]")
+        raise typer.Exit(1)
+
+    app_config = config[appname]
+    backup_root = config["settings"]["backup_root"]
+    backup_dir = get_backup_dir(appname, config)
+
+    try:
+        backup_path = backup_database(appname, app_config["db_path"], str(backup_dir), backup_root)
+        console.print(f"\n[green]✓ Backup complete:[/green] {backup_path.name}")
+    except Exception as e:
+        console.print(f"\n[red]✗ Backup failed: {e}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        deleted = prune_backups(appname, str(backup_dir), app_config["max_backups"], backup_root)
+        if deleted:
+            console.print(f"  Pruned {len(deleted)} old backup(s).")
+    except Exception as e:
+        console.print(f"[red]✗ Pruning failed: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def vacuum(appname: str = typer.Argument(..., help="Name of the registered app to vacuum")):
+    """Run VACUUM on the source database for a registered app."""
+    from db_backup_manager.vacuum import vacuum_database
+
+    config = load_config()
+    validate_settings(config)
+
+    if appname not in config:
+        console.print(f"\n[red]✗ '{appname}' is not registered.[/red]")
+        raise typer.Exit(1)
+
+    app_config = config[appname]
+    backup_root = config["settings"]["backup_root"]
+
+    if "vacuum_schedule" not in app_config:
+        console.print(f"\n[yellow]⚠ '{appname}' has no vacuum schedule configured.[/yellow]")
+
+    try:
+        vacuum_database(appname, app_config["db_path"], backup_root)
+        console.print(f"\n[green]✓ Vacuum complete:[/green] {app_config['db_path']}")
+    except Exception as e:
+        console.print(f"\n[red]✗ Vacuum failed: {e}[/red]")
+        raise typer.Exit(1)
