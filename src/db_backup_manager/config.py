@@ -58,7 +58,9 @@ def write_app_config(appname: str, data: dict) -> None:
         f"db_path = \"{data['db_path']}\"\n"
         f"backup_frequency = \"{data['backup_frequency']}\"\n"
         f"max_backups = {data['max_backups']}\n"
-        f"vacuum_schedule = \"{data['vacuum_schedule']}\"\n"
     )
+    if "vacuum_schedule" in data:
+        entry += f"vacuum_schedule = \"{data['vacuum_schedule']}\"\n"
+        
     with open(config_path, "a") as f:
         f.write(entry)
