@@ -80,7 +80,7 @@ uv pip install -e .
 4. **`pruner.py`** — retention enforcement, runs after each backup
 5. **`vacuum.py`** — sqlite3 VACUUM on the source database
 6. **`logger.py`** — centralized error logging with rotation
-7. **`cron.py`** — cron entry generation for `cron-show` command
+7. **`cron.py`** — cron entry generation; used by `register` (end of flow) and `cron-show` (on demand)
 8. **`list` command** — Rich table, needs config + backup dirs populated first
 
 ---
@@ -115,12 +115,12 @@ vacuum_schedule = "0 0 1 * *"
 ## CLI Commands
 
 ```bash
-db-backup-manager register <appname>     # register a new app (prompts for config values)
+db-backup-manager register <appname>     # register app, save config, print crontab entries
 db-backup-manager list                   # list all registered apps with status
 db-backup-manager backup <appname>       # run a backup + prune old backups
 db-backup-manager vacuum <appname>       # run VACUUM on the source database
-db-backup-manager cron-show <appname>    # print crontab entries for one app
-db-backup-manager cron-show --all        # print crontab entries for all apps
+db-backup-manager cron-show              # display crontab entries for all apps (default)
+db-backup-manager cron-show <appname>    # display crontab entries for one app
 ```
 
 ---
@@ -235,7 +235,7 @@ def get_cron_entries(appname: str, config: dict) -> dict:
 
 - **No in-process scheduler** (no APScheduler) — keeps the app simple and stateless
 - Cron drives all scheduling; `db-backup-manager` is invoked by cron per entry
-- `cron-show` assists the user in setting up crontab entries without automating it
+- `cron-show` displays saved crontab entries for all apps (or one app) on demand
 
 ### Example crontab (user-managed)
 
@@ -262,7 +262,7 @@ def get_cron_entries(appname: str, config: dict) -> dict:
 ## Output & Reporting (Rich)
 
 - `db-backup-manager list` → Rich table: app name, db path, last backup, backup count, next scheduled run
-- `db-backup-manager cron-show` → styled table of crontab entries
+- `db-backup-manager cron-show` → styled table of crontab entries for all apps (or one if appname given)
 - Backup/vacuum commands → colored status lines (`✓` / `✗`)
 
 ---
