@@ -22,16 +22,20 @@ between frontend (CLI, future TUI/web) and core logic.
 ## Project Directory Structure
 
 ```
-db_backup_manager/
-├── __init__.py
-├── cli.py          # Typer entry points (thin layer — no business logic)
-├── tui.py          # Textual TUI (future)
-├── config.py       # TOML read/write (~/.db_backup_manager/config.toml)
-├── backup.py       # sqlite3 backup logic
-├── vacuum.py       # sqlite3 VACUUM logic
-├── pruner.py       # retention enforcement (keep newest N backups)
-├── cron.py         # cron entry generation for cron-show command
-└── logger.py       # centralized error logging
+db_backup_manager/              # project root
+├── pyproject.toml
+├── README.md
+└── src/
+    └── db_backup_manager/      # package source
+        ├── __init__.py
+        ├── cli.py              # Typer entry points (thin layer — no business logic)
+        ├── config.py           # TOML read/write (~/.db_backup_manager/config.toml)
+        ├── backup.py           # sqlite3 backup logic
+        ├── pruner.py           # retention enforcement (keep newest N backups)
+        ├── vacuum.py           # sqlite3 VACUUM logic
+        ├── logger.py           # centralized error logging
+        ├── cron.py             # cron entry generation for cron-show command
+        └── tui.py              # Textual TUI (future)
 ```
 
 ### Backup Directory Layout
@@ -51,26 +55,33 @@ db_backup_manager/
 
 ### Packaging
 
-```
-db_backup_manager/         # package source (above)
-pyproject.toml             # uv/pip installable package definition
-README.md
-```
-
 `pyproject.toml` entry point:
 ```toml
 [project.scripts]
-db_backup_manager = "db_backup_manager.cli:app"
+db-backup-manager = "db_backup_manager.cli:app"
 ```
 
 ### Bootstrap with uv
 
 ```bash
-uv init db_backup_manager --package --no-src
+uv init db_backup_manager --package
 cd db_backup_manager
 uv add typer
 uv pip install -e .
 ```
+
+---
+
+## Build Order
+
+1. **`config.py`** — everything else depends on reading/writing the config
+2. **`register` command** — gets an app into the config so we have real data to work with
+3. **`backup.py`** — core backup logic using `sqlite3` backup API
+4. **`pruner.py`** — retention enforcement, runs after each backup
+5. **`vacuum.py`** — sqlite3 VACUUM on the source database
+6. **`logger.py`** — centralized error logging with rotation
+7. **`cron.py`** — cron entry generation for `cron-show` command
+8. **`list` command** — Rich table, needs config + backup dirs populated first
 
 ---
 
@@ -104,17 +115,35 @@ vacuum_schedule = "0 0 1 * *"
 ## CLI Commands
 
 ```bash
-db_backup_manager register <appname>     # register a new app (prompts for config values)
-db_backup_manager list                   # list all registered apps with status
-db_backup_manager backup <appname>       # run a backup + prune old backups
-db_backup_manager vacuum <appname>       # run VACUUM on the source database
-db_backup_manager cron-show <appname>    # print crontab entries for one app
-db_backup_manager cron-show --all        # print crontab entries for all apps
+db-backup-manager register <appname>     # register a new app (prompts for config values)
+db-backup-manager list                   # list all registered apps with status
+db-backup-manager backup <appname>       # run a backup + prune old backups
+db-backup-manager vacuum <appname>       # run VACUUM on the source database
+db-backup-manager cron-show <appname>    # print crontab entries for one app
+db-backup-manager cron-show --all        # print crontab entries for all apps
 ```
 
 ---
 
 ## Core Module Notes
+
+### `config.py`
+Reads `~/.db_backup_manager/config.toml` using `tomllib` (stdlib, Python 3.11+).
+Writes new app entries as formatted strings appended to the config file:
+
+```python
+def write_app_config(appname: str, config: dict, config_path: Path) -> None:
+    entry = f"""
+[{appname}]
+db_path = "{config['db_path']}"
+backup_dir = "{config['backup_dir']}"
+backup_frequency = "{config['backup_frequency']}"
+max_backups = {config['max_backups']}
+vacuum_schedule = "{config['vacuum_schedule']}"
+"""
+    with open(config_path, "a") as f:
+        f.write(entry)
+```
 
 ### `backup.py`
 Uses Python's built-in `sqlite3` backup API — safe for live databases:
@@ -135,18 +164,6 @@ def backup_database(db_path: str, backup_dir: str) -> Path:
     return backup_path
 ```
 
-### `vacuum.py`
-Uses standard `sqlite3` — no external dependencies:
-
-```python
-import sqlite3
-
-def vacuum_database(db_path: str) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.execute("VACUUM")
-    conn.close()
-```
-
 ### `pruner.py`
 Keeps the N most recent backups, deletes the rest:
 
@@ -161,33 +178,16 @@ def prune_backups(backup_dir: str, max_backups: int) -> list[Path]:
     return to_delete
 ```
 
-### `cron.py`
-Generates crontab lines from config — never touches the actual crontab:
+### `vacuum.py`
+Uses standard `sqlite3` — no external dependencies:
 
 ```python
-def get_cron_entries(appname: str, config: dict) -> dict:
-    return {
-        "backup": f"{config['backup_frequency']}  db_backup_manager backup {appname}",
-        "vacuum": f"{config['vacuum_schedule']}  db_backup_manager vacuum {appname}",
-    }
-```
+import sqlite3
 
-### `config.py`
-Reads `~/.db_backup_manager/config.toml` using `tomllib` (stdlib, Python 3.11+).
-Writes new app entries as formatted strings appended to the config file:
-
-```python
-def write_app_config(appname: str, config: dict, config_path: Path) -> None:
-    entry = f"""
-[{appname}]
-db_path = "{config['db_path']}"
-backup_dir = "{config['backup_dir']}"
-backup_frequency = "{config['backup_frequency']}"
-max_backups = {config['max_backups']}
-vacuum_schedule = "{config['vacuum_schedule']}"
-"""
-    with open(config_path, "a") as f:
-        f.write(entry)
+def vacuum_database(db_path: str) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute("VACUUM")
+    conn.close()
 ```
 
 ### `logger.py`
@@ -218,22 +218,33 @@ def get_logger(backup_root: str) -> logging.Logger:
     return logger
 ```
 
+### `cron.py`
+Generates crontab lines from config — never touches the actual crontab:
+
+```python
+def get_cron_entries(appname: str, config: dict) -> dict:
+    return {
+        "backup": f"{config['backup_frequency']}  db-backup-manager backup {appname}",
+        "vacuum": f"{config['vacuum_schedule']}  db-backup-manager vacuum {appname}",
+    }
+```
+
 ---
 
 ## Scheduling Strategy
 
 - **No in-process scheduler** (no APScheduler) — keeps the app simple and stateless
-- Cron drives all scheduling; `db_backup_manager` is invoked by cron per entry
+- Cron drives all scheduling; `db-backup-manager` is invoked by cron per entry
 - `cron-show` assists the user in setting up crontab entries without automating it
 
 ### Example crontab (user-managed)
 
 ```cron
 # myapp backups — every 6 hours
-0 */6 * * *  db_backup_manager backup myapp
+0 */6 * * *  db-backup-manager backup myapp
 
 # myapp vacuum — midnight, 1st of each month
-0 0 1 * *    db_backup_manager vacuum myapp
+0 0 1 * *    db-backup-manager vacuum myapp
 ```
 
 ---
@@ -250,8 +261,8 @@ def get_logger(backup_root: str) -> logging.Logger:
 
 ## Output & Reporting (Rich)
 
-- `db_backup_manager list` → Rich table: app name, db path, last backup, backup count, next scheduled run
-- `db_backup_manager cron-show` → styled table of crontab entries
+- `db-backup-manager list` → Rich table: app name, db path, last backup, backup count, next scheduled run
+- `db-backup-manager cron-show` → styled table of crontab entries
 - Backup/vacuum commands → colored status lines (`✓` / `✗`)
 
 ---
