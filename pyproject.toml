@@ -1,0 +1,19 @@
+[project]
+name = "db-backup-manager"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "=", email = "rc.info@protonmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "typer>=0.26.2",
+]
+
+[project.scripts]
+db-backup-manager = "db_backup_manager:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
