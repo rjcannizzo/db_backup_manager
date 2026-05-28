@@ -10,7 +10,7 @@ from db_backup_manager.config import (
     get_backup_dir,
     write_app_config,
 )
-from db_backup_manager.cron import get_cron_entries, format_cron_entries
+from db_backup_manager.cron import get_cron_entries
 
 app = typer.Typer(help="SQLite database backup manager.")
 console = Console()
@@ -56,14 +56,14 @@ def prompt_vacuum_schedule() -> str | None:
     return VACUUM_SCHEDULE_PRESETS[choice][1]
 
 
-def print_cron_entries(appname: str, data: dict) -> None:
+def print_cron_entries(appname: str, data: dict, backup_root: str) -> None:
     """Print crontab entries as plain styled text for easy copying."""
-    entries = get_cron_entries(appname, data)
+    entries = get_cron_entries(appname, data, backup_root)
     console.print("\n[bold]Add these entries to your crontab[/bold] [dim](crontab -e):[/dim]")
     console.print(Rule(style="blue"))
     console.print(f"[cyan]# {appname}[/cyan]")
     console.print(entries["backup"])
-    if "vacuum_schedule" in data:
+    if "vacuum" in entries:
         console.print(entries["vacuum"])
     console.print(Rule(style="blue"))
 
@@ -115,7 +115,7 @@ def register(appname: str = typer.Argument(..., help="Name of the app to registe
     console.print(f"\n[green]✓ '{appname}' registered successfully.[/green]")
     console.print(f"  Backup directory: {backup_dir}")
 
-    print_cron_entries(appname, data)
+    print_cron_entries(appname, data, config["settings"]["backup_root"])
 
 
 @app.command()
@@ -141,10 +141,10 @@ def show(appname: Optional[str] = typer.Argument(None, help="App name (omit for 
     console.print("\n[bold]Crontab entries[/bold] [dim](crontab -e):[/dim]")
     console.print(Rule(style="blue"))
     for name, data in apps.items():
-        entries = get_cron_entries(name, data)
+        entries = get_cron_entries(name, data, backup_root)
         console.print(f"[cyan]# {name}[/cyan]")
         console.print(entries["backup"])
-        if "vacuum_schedule" in data:
+        if "vacuum" in entries:
             console.print(entries["vacuum"])
         console.print()
     console.print(Rule(style="blue"))
