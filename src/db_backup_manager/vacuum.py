@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 
 from db_backup_manager.logger import get_logger
 
@@ -13,7 +14,8 @@ def vacuum_database(appname: str, db_path: str, backup_root: str) -> None:
     logger = get_logger(backup_root)
 
     try:
-        conn = sqlite3.connect(db_path)
+        # conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(str(Path(db_path).expanduser()))
         conn.execute("VACUUM")
         conn.close()
     except Exception as e:

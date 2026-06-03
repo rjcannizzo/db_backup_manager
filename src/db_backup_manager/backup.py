@@ -22,8 +22,8 @@ def backup_database(appname: str, db_path: str, backup_dir: str, backup_root: st
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = backup_dir_path / f"backup_{timestamp}.db"
 
-    try:
-        src = sqlite3.connect(db_path)
+    try:        
+        src = sqlite3.connect(str(Path(db_path).expanduser()))
         dst = sqlite3.connect(backup_path)
         try:
             src.backup(dst)
